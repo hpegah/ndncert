@@ -234,6 +234,8 @@ Request::genChallengeInterest(std::multimap<std::string, std::string>&& paramete
                                              m_encryptionIv);
   interest->setApplicationParameters(paramBlock);
   m_keyChain.sign(*interest, signingByKey(m_keyPair.getName()));
+  NDN_LOG_TRACE("interest size: " << interest->wireEncode().size() << ", " << challengeParams.value_size());
+
   return interest;
 }
 

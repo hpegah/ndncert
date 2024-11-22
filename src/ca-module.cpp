@@ -373,7 +373,9 @@ CaModule::onChallenge(const Interest& request)
 {
   // get certificate request state
   auto requestState = getCertificateRequest(request);
+  NDN_LOG_TRACE("I am getting the request state (line 375 ca-module)");
   if (requestState == nullptr) {
+    NDN_LOG_TRACE("No certificate request state can be found.");
     NDN_LOG_ERROR("No certificate request state can be found.");
     m_face.put(generateErrorDataPacket(request.getName(), ErrorCode::INVALID_PARAMETER,
                                        "No certificate request state can be found."));
@@ -382,6 +384,7 @@ CaModule::onChallenge(const Interest& request)
 
   // verify signature
   if (!ndn::security::verifySignature(request, requestState->cert)) {
+    NDN_LOG_TRACE("Invalid Signature in the Interest packet.");
     NDN_LOG_ERROR("Invalid Signature in the Interest packet.");
     m_face.put(generateErrorDataPacket(request.getName(), ErrorCode::BAD_SIGNATURE,
                                        "Invalid Signature in the Interest packet."));
@@ -391,11 +394,13 @@ CaModule::onChallenge(const Interest& request)
   // decrypt the parameters
   ndn::Buffer paramTLVPayload;
   try {
+    NDN_LOG_TRACE("Trying to decrypt parameter payload (line396 ca-module)");
     paramTLVPayload = decodeBlockWithAesGcm128(request.getApplicationParameters(), requestState->encryptionKey.data(),
                                                requestState->requestId.data(), requestState->requestId.size(),
                                                requestState->decryptionIv, requestState->encryptionIv);
   }
   catch (const std::exception& e) {
+    NDN_LOG_TRACE("Interest paramaters decryption failed: " << e.what());
     NDN_LOG_ERROR("Interest paramaters decryption failed: " << e.what());
     m_storage->deleteRequest(requestState->requestId);
     m_face.put(generateErrorDataPacket(request.getName(), ErrorCode::INVALID_PARAMETER,
@@ -403,6 +408,7 @@ CaModule::onChallenge(const Interest& request)
     return;
   }
   if (paramTLVPayload.empty()) {
+    NDN_LOG_TRACE("No parameters are found after decryption.");
     NDN_LOG_ERROR("No parameters are found after decryption.");
     m_storage->deleteRequest(requestState->requestId);
     m_face.put(generateErrorDataPacket(request.getName(), ErrorCode::INVALID_PARAMETER,
@@ -410,11 +416,17 @@ CaModule::onChallenge(const Interest& request)
     return;
   }
 
+  NDN_LOG_TRACE("Making a binary block for the parameters");
   auto paramTLV = ndn::makeBinaryBlock(tlv::EncryptedPayload, paramTLVPayload);
   paramTLV.parse();
+  NDN_LOG_TRACE("parsing binary block for the parameters");
+
+  //auto challengeT = paramTLV.get(tlv::SelectedChallenge);
+  //NDN_LOG_TRACE("trying to get challenge type TLV: ");
 
   // load the corresponding challenge module
   std::string challengeType = readString(paramTLV.get(tlv::SelectedChallenge));
+  NDN_LOG_TRACE("trying to get challenge type: " << challengeType);
   auto challenge = ChallengeModule::createChallengeModule(challengeType);
   if (challenge == nullptr) {
     NDN_LOG_TRACE("Unrecognized challenge type: " << challengeType);
@@ -426,6 +438,7 @@ CaModule::onChallenge(const Interest& request)
 
   NDN_LOG_TRACE("CHALLENGE module to be load: " << challengeType);
   auto errorInfo = challenge->handleChallengeRequest(paramTLV, *requestState);
+  NDN_LOG_TRACE("where am I? After handleChallengeRequest");
   if (std::get<0>(errorInfo) != ErrorCode::NO_ERROR) {
     m_storage->deleteRequest(requestState->requestId);
     m_face.put(generateErrorDataPacket(request.getName(), std::get<0>(errorInfo), std::get<1>(errorInfo)));
@@ -467,6 +480,7 @@ CaModule::onChallenge(const Interest& request)
   if (m_statusUpdateCallback) {
     m_statusUpdateCallback(*requestState);
   }
+  NDN_LOG_TRACE("After updating result information (line 470)");
 }
 
 Certificate
