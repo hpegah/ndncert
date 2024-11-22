@@ -281,7 +281,7 @@ ChallengeX509Possession::getRequestedParameterList(Status status, const std::str
 {
   std::multimap<std::string, std::string> result;
   if (status == Status::BEFORE_CHALLENGE) {
-    result.emplace(PARAMETER_KEY_CREDENTIAL_CERT, "Please provide the file path for the certificate issued by a trusted CA.");
+    result.emplace(PARAMETER_KEY_CREDENTIAL_CERT, "Please provide the certificate issued by a trusted CA.");
     return result;
   }
   else if (status == Status::CHALLENGE && challengeStatus == NEED_PROOF) {
