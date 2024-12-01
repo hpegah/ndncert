@@ -117,18 +117,6 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
           auto block = elements[i+1].value_bytes();
           NDN_LOG_TRACE("Creating block");
           NDN_LOG_TRACE("Block size is: " << block.size());
-          // std::string fileName (block.begin(), block.end());
-          // NDN_LOG_TRACE("converting to string " << fileName);
-          // fileName = "/Users/hopepegah/Desktop/avinc-com-chain.pem";
-          // NDN_LOG_TRACE("filename is: " << fileName);
-          // const char* certChainFile = NULL;
-          // certChainFile = "/Users/hopepegah/Desktop/avinc-com-chain.pem";
-          // NDN_LOG_TRACE("converting to character array");
-          // fp = fopen(certChainFile, "r");
-          // NDN_LOG_TRACE("attempting to open file");
-          // if(!fp){
-          //   NDN_LOG_TRACE("file did not open");
-          // }
           // reads in the certificate and converts from base64
           std::string certString (block.begin(), block.end());
           NDN_LOG_TRACE("Cert chain is: " << certString);
@@ -143,12 +131,6 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
             sk_X509_push(chain, cert); // Add the certificate to the stack
           }
           BIO_free(bio);
-          // while ((cert = PEM_read_X509(fp, NULL, NULL, NULL)) != NULL) {
-          //   char* subject = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-          //   NDN_LOG_TRACE("push cert: " << subject);
-          //   sk_X509_push(chain, cert);
-          // }
-          // fclose(fp);
           
           // finds the number of certs in the chains
           num_certs = sk_X509_num(chain);
@@ -266,7 +248,7 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
         EVP_DigestVerify(ctx, signature, signatureLen, secretCode.data(), secretCode.size()) == 1) {
         return returnWithSuccess(request);
     }
-    NDN_LOG_TRACE("Cannot verify the proof of private key against credentation");
+    NDN_LOG_TRACE("Cannot verify the proof of private key against credential");
     return returnWithError(request, ErrorCode::INVALID_PARAMETER,
                            "Cannot verify the proof of private key against credential.");
   }
