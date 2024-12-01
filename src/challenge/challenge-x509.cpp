@@ -95,6 +95,7 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
 
   FILE *fp = NULL;
   X509 *cert = NULL;
+  // stores the X.509 certificate chain as a stack of cert pointers
   STACK_OF(X509) *chain = sk_X509_new_null();
   EVP_PKEY* publicKey = NULL;
   int num_certs = 0;
@@ -111,37 +112,41 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
     if (elements[i].type() == tlv::ParameterKey && elements[i + 1].type() == tlv::ParameterValue) {
       if (readString(elements[i]) == PARAMETER_KEY_CREDENTIAL_CERT) {
         try {
-          // Block testCert = elements[i+1].blockFromValue();
-          // std::string testString (testCert.begin(), testCert.end());
-          // NDN_LOG_TRACE("testing block to string conversion: " << testString);
+          // reads the X.509 certificate chain in PEM encoding into a block
           auto block = elements[i+1].value_bytes();
           NDN_LOG_TRACE("Creating block");
           NDN_LOG_TRACE("Block size is: " << block.size());
-          // reads in the certificate and converts from base64
+          // converts the block X.509 cert chain to a string
           std::string certString (block.begin(), block.end());
           NDN_LOG_TRACE("Cert chain is: " << certString);
+          // creates a new memory buffer for OpenSSL to read from
           BIO* bio = BIO_new_mem_buf(certString.data(), static_cast<int>(certString.size()));
           NDN_LOG_TRACE("Cert string size is: " << static_cast<int>(certString.size()));
+          // cert pointer for each X.509 cert in the chain
           X509* cert = nullptr;
           NDN_LOG_TRACE("Created cert pointer");
           // Add the certificate to the stack
           while ((cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr)) != nullptr) {
+            // extracts and prints the subject name of each cert
             char* subject = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
             NDN_LOG_TRACE("push cert: " << subject);
-            sk_X509_push(chain, cert); // Add the certificate to the stack
+            // pushes the individual certs onto the cert stack
+            sk_X509_push(chain, cert); 
           }
           BIO_free(bio);
           
           // finds the number of certs in the chains
           num_certs = sk_X509_num(chain);
           NDN_LOG_TRACE("there are " << num_certs << " certs in this x.509 chain");
-          // stores the first certificate in the key chain, which is the server certificate
+          // stores the first certificate in the key chain, which is the entity certificate
           server_cert = sk_X509_value(chain, 0);
+          // extracts the public key of the cert (later used for proof verification)
           publicKey = X509_get_pubkey(server_cert);
 
           NDN_LOG_TRACE("the public key of the server certificate is: " << &publicKey);
 
         }
+        // logs an error if the cert is invalid
         catch (const std::exception& e) {
           NDN_LOG_ERROR("Cannot load challenge parameter: credential " << e.what());
           return returnWithError(request, ErrorCode::INVALID_PARAMETER,
@@ -166,14 +171,18 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
     // check the certificate signature chain
     X509_STORE *store = X509_STORE_new();
     X509 *root_cert = sk_X509_value(chain, sk_X509_num(chain) - 1);
+    // adds the root certificate to the store of trusted CAs
     X509_STORE_add_cert(store, root_cert);
 
+    // initializes the OpenSSL cert vertification
     X509_STORE_CTX *ctx = X509_STORE_CTX_new();
     X509_STORE_CTX_init(ctx, store, sk_X509_value(chain, 0), chain);
 
+    // checks if the certificate chain is valid
     int result = X509_verify_cert(ctx);
     bool is_valid = (result == 1);
 
+    // logs an error if the certificate chain is not valid
     if (!is_valid) {
         int error = X509_STORE_CTX_get_error(ctx);
         NDN_LOG_TRACE("Certificate verification failed: " << X509_verify_cert_error_string(error));
@@ -187,7 +196,6 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
     if (len < 0) {
         NDN_LOG_TRACE("Failed to convert certificate to DER format.");
     }
-
     std::vector<uint8_t> der(len);
     unsigned char* derPtr = der.data();
     i2d_X509(server_cert, &derPtr);
@@ -202,12 +210,14 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
 
     NDN_LOG_TRACE("Starting random secret code generation");
 
+    // generates each byte for secret code
     for (auto& byte : secretCode) {
         byte = dis(gen);
     }
 
     NDN_LOG_TRACE("The random secret code is: " << ndn::toHex(secretCode));
 
+    // logs the secret code and the DER encoded certificate chain
     JsonSection secretJson;
     secretJson.add(PARAMETER_KEY_NONCE, ndn::toHex(secretCode));
     secretJson.add(PARAMETER_KEY_CREDENTIAL_CERT, ndn::toHex(der));
@@ -216,20 +226,21 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
   }
   else if (request.challengeState && request.challengeState->challengeStatus == NEED_PROOF) {
     NDN_LOG_TRACE("Challenge Interest (proof) arrives. Check the proof");
-    //check the format and load credential
+    // check if the signed proof is empty
     if (signatureLen == 0) {
       return returnWithError(request, ErrorCode::BAD_INTEREST_FORMAT, "Cannot find certificate");
     }
+    // converts the logged secret code from HEX
     auto secretCode = *ndn::fromHex(request.challengeState->secrets.get(PARAMETER_KEY_NONCE, ""));
 
-    //check the proof
+    // check the proof
     // Convert public key to PKCS#8 format in PEM encoding
     BIO* bio = BIO_new(BIO_s_mem());  // Create a memory BIO to hold the output
     if (PEM_write_bio_PUBKEY(bio, publicKey) == 0) {
         NDN_LOG_TRACE("Failed to write public key in PKCS#8 format.");
     }
 
-    // Read the PEM data from the BIO
+    // Read the PEM data from the mem buffer
     BUF_MEM* buffer;
     BIO_get_mem_ptr(bio, &buffer);
     //  stores the server certificate public key as a pkcs8 format
@@ -248,6 +259,7 @@ ChallengeX509Possession::handleChallengeRequest(const Block& params, ca::Request
         EVP_DigestVerify(ctx, signature, signatureLen, secretCode.data(), secretCode.size()) == 1) {
         return returnWithSuccess(request);
     }
+    // logs error if the proof certificate failed
     NDN_LOG_TRACE("Cannot verify the proof of private key against credential");
     return returnWithError(request, ErrorCode::INVALID_PARAMETER,
                            "Cannot verify the proof of private key against credential.");
