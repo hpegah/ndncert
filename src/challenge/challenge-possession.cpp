@@ -152,10 +152,7 @@ ChallengePossession::handleChallengeRequest(const Block& params, ca::RequestStat
     //check the proof
     ndn::security::transform::PublicKey key;
     key.loadPkcs8(credential.getPublicKey());
-    // if (ndn::security::verifySignature({secretCode}, {signature, signatureLen}, key)) {
-    //   return returnWithSuccess(request);
-    // }
-    if(signatureLen == 5){
+    if (ndn::security::verifySignature({secretCode}, {signature, signatureLen}, key)) {
       return returnWithSuccess(request);
     }
     return returnWithError(request, ErrorCode::INVALID_PARAMETER,
